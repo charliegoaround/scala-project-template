@@ -98,18 +98,18 @@ jobs:
           command: |
             version=$(<.version)
             echo "Tagging revision $version"
-            git tag $version
-            git push --tags
+            # git tag $version
+            # git push --tags
       - run:
           name: Update version file
           command: |
             sed -i -r 's/^([0-9]*)?(\.([0-9]*))?(\.([0-9]*))?$/echo "\1.$((\3+0)).$((\5+1))"/ge' .version
             version=$(<.version)
-            git add .version
+            # git add .version
             # git config user.email ""
             # git config user.name ""
-            git commit -m "Update version file (new version: $version) [skip ci]"
-            git push
+            # git commit -m "Update version file (new version: $version) [skip ci]"
+            # git push
 
   release:
     docker: *jdk_image
