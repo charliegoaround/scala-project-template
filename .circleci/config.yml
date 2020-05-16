@@ -1,0 +1,145 @@
+version: 2.1
+
+orbs:
+  sbt:
+    commands:
+      install:
+        description: Install sbt
+        parameters:
+          version:
+            type: string
+            default: 1.3.10
+        steps:
+          - run:
+              name: Install sbt
+              command: |
+                apt update && apt install -y curl
+                curl -L -o sbt-<< parameters.version >>.deb https://dl.bintray.com/sbt/debian/sbt-<< parameters.version >>.deb
+                dpkg -i sbt-<< parameters.version >>.deb
+                rm sbt-<< parameters.version >>.deb
+      cache_save:
+        description: Save sbt cache
+        steps:
+          - save_cache:
+              key: sbt-cache
+              paths:
+                - "~/.ivy2/cache"
+                - "~/.sbt"
+                - "~/.m2"
+      cache_restore:
+        description: Restsore sbt cache
+        steps:
+          - restore_cache:
+              keys:
+                - sbt-cache
+
+jobs:
+  build:
+    docker: &jdk_image
+      - image: circleci/openjdk:latest
+    working_directory: ~/repo
+    steps:
+      - checkout
+      - sbt/install
+      - sbt/cache_restore
+      - run:
+          name: Scalafmt
+          command: |
+            cat /dev/null | sbt scalafmtCheck test:scalafmtCheck it:scalafmtCheck
+      - run:
+          name: Scalastyle
+          command: |
+            cat /dev/null | sbt scalastyle test:scalastyle it:scalastyle
+      - run:
+          name: Test
+          command: |
+            cat /dev/null | sbt clean update coverage test
+      - run:
+          name: Generate coverage report
+          command: |
+            cat /dev/null | sbt coverageReport
+      - sbt/cache_save
+      - store_test_results:
+          path: target/test-reports
+      - store_artifacts:
+          path: target/scala-2.12/scoverage-report
+
+  it:
+    machine:
+      image: ubuntu-1604:201903-01
+    working_directory: ~/repo
+    steps:
+      - checkout
+      - run:
+          name: Start Docker Containers
+          command: |
+            cat /dev/null | docker-compose -f src/it/docker-compose.yml up -d
+      - run:
+          name: Integration test
+          command: |
+            cat /dev/null | sbt clean update coverage test it:test
+      - run:
+          name: Generate coverage report
+          command: |
+            cat /dev/null | sbt coverageReport
+      - sbt/cache_save
+      - store_test_results:
+          path: target/test-reports
+      - store_artifacts:
+          path: target/scala-2.12/scoverage-report
+
+  tag:
+    docker: *jdk_image
+    working_directory: ~/repo
+    steps:
+      - checkout
+      - run:
+          name: Tag the revision
+          command: |
+            version=$(<.version)
+            echo "Tagging revision $version"
+            git tag $version
+            git push --tags
+      - run:
+          name: Update version file
+          command: |
+            sed -i -r 's/^([0-9]*)?(\.([0-9]*))?(\.([0-9]*))?$/echo "\1.$((\3+0)).$((\5+1))"/ge' .version
+            version=$(<.version)
+            git add .version
+            # git config user.email ""
+            # git config user.name ""
+            git commit -m "Update version file (new version: $version) [skip ci]"
+            git push
+
+  release:
+    docker: *jdk_image
+    working_directory: ~/repo
+    steps:
+      - checkout
+      - sbt/install
+      - sbt/cache_restore
+      - run:
+          name: Publish
+          command: |
+            echo "Publish"
+
+workflows:
+  version: 2.1
+  ci-cd:
+    jobs:
+      - build:
+      - it:
+          requires:
+            - build
+      - tag:
+          requires:
+            - it
+          filters:
+            branches:
+              only: master
+      - release:
+          requires:
+            - tag
+          filters:
+            branches:
+              only: master
