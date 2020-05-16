@@ -127,7 +127,7 @@ workflows:
   version: 2.1
   ci-cd:
     jobs:
-      - build:
+      - build
       - it:
           requires:
             - build
